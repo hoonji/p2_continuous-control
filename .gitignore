@@ -1,0 +1,10 @@
+*.swp
+env/
+node_modules/
+__pycache__/
+build/
+.git/
+.DS_STORE
+.ipynb_checkpoints/
+checkpoints/
+Reacher.app*
