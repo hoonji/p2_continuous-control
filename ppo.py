@@ -150,7 +150,7 @@ def run_ppo(env):
         optimizer.step()
 
     torch.save(agent.state_dict(), f'checkpoints/model_step_{update}.pickle')
-    with open(f'checkpoints/eplen_and_returns_{update}.pickle', 'wb') as f:
+    with open(f'checkpoints/eplen_and_returns.pickle', 'wb') as f:
       pickle.dump([(steps, r)
                    for steps, r in zip(episode_steps, total_rewards)], f)
 
