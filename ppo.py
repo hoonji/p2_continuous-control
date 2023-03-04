@@ -141,7 +141,7 @@ def run_ppo(env):
         )
         v_loss_clipped = (v_clipped - returns[mb_inds])**2
         v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-        v_loss = 0.5 * v_loss_max.mean()
+        v_loss = v_loss_max.mean()
 
         entropy_loss = entropy.mean()
         loss = pg_loss + V_COEF * v_loss - ENT_COEF * entropy_loss
