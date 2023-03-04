@@ -22,7 +22,7 @@ MAX_GRAD_NORM = .5
 GAE_LAMBDA = .95
 V_COEF = .5
 ENT_COEF = .01
-HIDDEN_LAYER_SIZE = 512
+HIDDEN_LAYER_SIZE = 256
 
 def run_ppo(env):
   """Trains a ppo agent in an environment.

@@ -5,9 +5,6 @@ import torch.optim as optim
 from torch.distributions.normal import Normal
 import random
 
-def testu():
-  return 'testu123'
-
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
   torch.nn.init.orthogonal_(layer.weight, std)
   torch.nn.init.constant_(layer.bias, bias_const)
@@ -21,18 +18,19 @@ class Agent(nn.Module):
         layer_init(
             nn.Linear(
                 np.array(n_observations).prod(), hidden_size)),
-        nn.Tanh(),
+        nn.ReLU(),
         layer_init(nn.Linear(hidden_size, hidden_size)),
-        nn.Tanh(),
+        nn.ReLU(),
         layer_init(nn.Linear(hidden_size, 1), std=1.0),
+        nn.Tanh(),
     )
     self.actor_mean = nn.Sequential(
         layer_init(
             nn.Linear(
                 np.array(n_observations).prod(), hidden_size)),
-        nn.Tanh(),
+        nn.ReLU(),
         layer_init(nn.Linear(hidden_size, hidden_size)),
-        nn.Tanh(),
+        nn.ReLU(),
         layer_init(nn.Linear(hidden_size, np.prod(n_actions)),
                    std=0.01),
     )
