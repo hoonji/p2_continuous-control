@@ -56,13 +56,10 @@ def run_ppo(env):
   time_checkpoint = time.time()
 
   for update in range(1, num_updates + 1):
-    # Anneal learning rate
     print(
         f"update {update}/{num_updates}. Last update in {time.time() - time_checkpoint}s"
     )
     time_checkpoint = time.time()
-    frac = 1.0 - (update - 1.0) / num_updates
-    optimizer.param_groups[0]["lr"] = frac * LEARNING_RATE
 
     for step in range(BATCH_SIZE):
       obs[step] = next_obs
