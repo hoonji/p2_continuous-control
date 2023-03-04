@@ -15,25 +15,25 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 
 class Agent(nn.Module):
 
-  def __init__(self, n_observations, n_actions):
+  def __init__(self, n_observations, n_actions, hidden_size=256):
     super().__init__()
     self.critic = nn.Sequential(
         layer_init(
             nn.Linear(
-                np.array(n_observations).prod(), 64)),
+                np.array(n_observations).prod(), hidden_size)),
         nn.Tanh(),
-        layer_init(nn.Linear(64, 64)),
+        layer_init(nn.Linear(hidden_size, hidden_size)),
         nn.Tanh(),
-        layer_init(nn.Linear(64, 1), std=1.0),
+        layer_init(nn.Linear(hidden_size, 1), std=1.0),
     )
     self.actor_mean = nn.Sequential(
         layer_init(
             nn.Linear(
-                np.array(n_observations).prod(), 64)),
+                np.array(n_observations).prod(), hidden_size)),
         nn.Tanh(),
-        layer_init(nn.Linear(64, 64)),
+        layer_init(nn.Linear(hidden_size, hidden_size)),
         nn.Tanh(),
-        layer_init(nn.Linear(64, np.prod(n_actions)),
+        layer_init(nn.Linear(hidden_size, np.prod(n_actions)),
                    std=0.01),
     )
     self.actor_logstd = nn.Parameter(
