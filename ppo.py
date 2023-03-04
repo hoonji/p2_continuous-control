@@ -12,7 +12,7 @@ from collections import deque
 LEARNING_RATE = 3e-4
 ADAM_EPS = 1e-5
 BATCH_SIZE = 2048
-TOTAL_TIMESTEPS = 2000000
+TOTAL_TIMESTEPS = 4000000
 GAMMA = .99
 LAMBDA = .95
 UPDATE_EPOCHS = 10
@@ -22,6 +22,7 @@ MAX_GRAD_NORM = .5
 GAE_LAMBDA = .95
 V_COEF = .5
 ENT_COEF = .01
+HIDDEN_LAYER_SIZE = 512
 
 def run_ppo(env):
   """Trains a ppo agent in an environment.
@@ -35,7 +36,7 @@ def run_ppo(env):
   n_actions = brain.vector_action_space_size
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-  agent = Agent(n_observations, n_actions).to(device)
+  agent = Agent(n_observations, n_actions, HIDDEN_LAYER_SIZE).to(device)
   #print(agent)
   optimizer = optim.Adam(agent.parameters(), lr=LEARNING_RATE, eps=ADAM_EPS)
 
@@ -60,6 +61,9 @@ def run_ppo(env):
         f"update {update}/{num_updates}. Last update in {time.time() - time_checkpoint}s"
     )
     time_checkpoint = time.time()
+    # Anneal learning rate
+    frac = 1.0 - (update - 1.0) / num_updates
+    optimizer.param_groups[0]["lr"] = frac * LEARNING_RATE
 
     for step in range(BATCH_SIZE):
       obs[step] = next_obs
