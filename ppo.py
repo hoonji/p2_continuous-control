@@ -18,11 +18,12 @@ LAMBDA = .95
 UPDATE_EPOCHS = 10
 N_MINIBATCHES = 32
 CLIP_COEF = .2
-MAX_GRAD_NORM = .5
+MAX_GRAD_NORM = 5
 GAE_LAMBDA = .95
 V_COEF = .5
 ENT_COEF = .01
-HIDDEN_LAYER_SIZE = 256
+HIDDEN_LAYER_SIZE = 512
+ANNEAL_LR = False
 
 def run_ppo(env):
   """Trains a ppo agent in an environment.
@@ -62,8 +63,9 @@ def run_ppo(env):
     )
     time_checkpoint = time.time()
     # Anneal learning rate
-    frac = 1.0 - (update - 1.0) / num_updates
-    optimizer.param_groups[0]["lr"] = frac * LEARNING_RATE
+    if ANNEAL_LR:
+      frac = 1.0 - (update - 1.0) / num_updates
+      optimizer.param_groups[0]["lr"] = frac * LEARNING_RATE
 
     for step in range(BATCH_SIZE):
       obs[step] = next_obs
@@ -149,7 +151,7 @@ def run_ppo(env):
         nn.utils.clip_grad_norm_(agent.parameters(), MAX_GRAD_NORM)
         optimizer.step()
 
-    torch.save(agent.state_dict(), f'checkpoints/model_step_{update}.pickle')
+    torch.save(agent.state_dict(), f'checkpoints/model_checkpoint.pickle')
     with open(f'checkpoints/eplen_and_returns.pickle', 'wb') as f:
       pickle.dump([(steps, r)
                    for steps, r in zip(episode_steps, total_rewards)], f)
