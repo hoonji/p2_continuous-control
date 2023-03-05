@@ -1,4 +1,5 @@
 # Implementation based on Costa Huang's PPO implementation: https://github.com/vwxyzjn/ppo-implementation-details/blob/main/ppo_continuous_action.py
+# Updated to support and solve the multi agent Reacher environment.
 
 import time
 import pickle
