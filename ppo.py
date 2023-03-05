@@ -16,7 +16,6 @@ from ppo_agent import Agent
 
 LEARNING_RATE = 3e-4
 ADAM_EPS = 1e-5
-TOTAL_TIMESTEPS = 2000000
 GAMMA = .99
 LAMBDA = .95
 UPDATE_EPOCHS = 10
@@ -27,6 +26,8 @@ GAE_LAMBDA = .95
 V_COEF = .5
 HIDDEN_LAYER_SIZE = 512
 ROLLOUT_LEN = 2048
+N_ROLLOUTS = 100
+ENTROPY_COEF = .01
 
 
 @dataclass
@@ -93,32 +94,31 @@ def run_ppo(env):
 
   next_observations = torch.Tensor(env_info.vector_observations).to(device)
   next_dones = torch.zeros(num_agents).to(device)
-  num_updates = TOTAL_TIMESTEPS // batch_size
   current_returns = np.zeros(num_agents)
   scores = []
   time_checkpoint = time.time()
 
-  for update in range(1, num_updates + 1):
+  for update in range(1, N_ROLLOUTS + 1):
     print(
-        f"update {update}/{num_updates}. Last update in {time.time() - time_checkpoint}s"
+        f"update {update}/{N_ROLLOUTS}. Last update in {time.time() - time_checkpoint}s"
     )
     time_checkpoint = time.time()
 
-    for step in range(ROLLOUT_LEN):
+    for t in range(ROLLOUT_LEN):
       observations = next_observations
 
       with torch.no_grad():
-        actions, logprobs = agent.get_actions_and_logprobs(observations)
-        values = agent.predict_values(observations)
+        actions, probs = agent.pi(observations)
+        values = agent.critic(observations)
       env_info = env.step(actions.cpu().numpy())[brain_name]
       dones = env_info.local_done
 
-      rollout.observations[step] = observations
-      rollout.actions[step] = actions
-      rollout.rewards[step] = torch.tensor(env_info.rewards).to(device)
-      rollout.dones[step] = next_dones  # record previous dones for this step
-      rollout.logprobs[step] = logprobs
-      rollout.values[step] = values.flatten()
+      rollout.observations[t] = observations
+      rollout.actions[t] = actions
+      rollout.rewards[t] = torch.tensor(env_info.rewards).to(device)
+      rollout.dones[t] = next_dones  # for this step, record previous dones
+      rollout.logprobs[t] = probs.log_prob(actions).sum(1)
+      rollout.values[t] = values.flatten()
 
       # Record agent returns
       current_returns += env_info.rewards
@@ -133,7 +133,7 @@ def run_ppo(env):
       if t == ROLLOUT_LEN - 1:
         next_nonterminal = 1.0 - next_dones
         with torch.no_grad():
-          next_values = agent.predict_values(next_observations).flatten()
+          next_values = agent.critic(next_observations).flatten()
       else:
         next_nonterminal = 1.0 - rollout.dones[t + 1]
         next_values = rollout.values[t + 1]
@@ -145,17 +145,20 @@ def run_ppo(env):
     for epoch in range(UPDATE_EPOCHS):
       for observations, actions, advantages, logprobs, values in rollout.gen_minibatches(
       ):
-        _, cur_logprobs = agent.get_actions_and_logprobs(observations, actions)
-        cur_values = agent.predict_values(observations)
-        ratios = (cur_logprobs - logprobs).exp()
+        _, probs = agent.pi(observations)
+        next_values = agent.critic(observations)
+        next_logprobs = probs.log_prob(actions).sum(1)
+        next_entropy = probs.entropy().sum(1)
+        ratios = (next_logprobs - logprobs).exp()
 
         # Surrogate objective
         surrogate_loss1 = -advantages * ratios
         surrogate_loss2 = -advantages * torch.clamp(ratios, 1 - CLIP_COEF,
                                                     1 + CLIP_COEF)
         surrogate_loss = torch.max(surrogate_loss1, surrogate_loss2).mean()
-        value_loss = V_COEF * (((advantages + values) - cur_values)**2).mean()
-        loss = surrogate_loss + value_loss
+        value_loss = V_COEF * (((advantages + values) - next_values)**2).mean()
+        entropy_loss = ENTROPY_COEF * next_entropy.mean()
+        loss = surrogate_loss + value_loss - entropy_loss
 
         optimizer.zero_grad()
         loss.backward()

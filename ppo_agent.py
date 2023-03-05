@@ -30,13 +30,9 @@ class Agent(nn.Module):
         OrthogonalInitLinear(hidden_size, n_actions))
     self.actor_logstd = nn.Parameter(torch.zeros(1, n_actions))
 
-  def predict_values(self, x):
-    return self.critic(x)
-
-  def get_actions_and_logprobs(self, x, action=None):
+  def pi(self, x):
+    """Returns a sampled action and its probability distribution."""
     action_means = self.actor_means(x)
     action_stddevs = torch.exp(self.actor_logstd.expand_as(action_means))
     probs = Normal(action_means, action_stddevs)
-    if action is None:
-      action = probs.sample()
-    return action, probs.log_prob(action).sum(1)
+    return probs.sample(), probs
