@@ -4,6 +4,7 @@ import time
 import pickle
 import random
 from collections import namedtuple
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -26,11 +27,39 @@ V_COEF = .5
 HIDDEN_LAYER_SIZE = 512
 ROLLOUT_LEN = 2048
 
-Rollout = namedtuple(
-    'Rollout',
-    ['observations', 'actions', 'logprobs', 'rewards', 'dones', 'values'])
-Batch = namedtuple(
-    'Batch', ['observations', 'actions', 'advantages', 'returns', 'logprobs'])
+
+@dataclass
+class Rollout:
+  """Stores rollouts and yields minibatches for training."""
+  batch_size: int
+  observations: torch.Tensor
+  actions: torch.Tensor
+  rewards: torch.Tensor
+  dones: torch.Tensor
+  logprobs: torch.Tensor
+  values: torch.Tensor
+  advantages: torch.Tensor
+
+  # Tensors required for PPO training loop.
+  Batch = namedtuple(
+      'Batch', ['observations', 'actions', 'advantages', 'logprobs', 'values'])
+
+  def gen_minibatches(self):
+    """Generates shuffled minibatches using rollout data."""
+    batch_indices = np.arange(self.batch_size)
+    np.random.shuffle(batch_indices)
+    minibatch_size = self.batch_size // N_MINIBATCHES
+    for start in range(0, self.batch_size, minibatch_size):
+      indices = batch_indices[start:start + minibatch_size]
+      minibatch = self.Batch(
+          observations=self.observations.reshape(
+              (self.batch_size, -1))[indices],
+          actions=self.actions.reshape((self.batch_size, -1))[indices],
+          advantages=self.advantages.reshape(self.batch_size)[indices],
+          logprobs=self.logprobs.reshape(self.batch_size)[indices],
+          values=self.values.reshape(self.batch_size)[indices],
+      )
+      yield minibatch
 
 
 def run_ppo(env):
@@ -50,19 +79,20 @@ def run_ppo(env):
   agent = Agent(n_observations, n_actions, HIDDEN_LAYER_SIZE).to(device)
   optimizer = optim.Adam(agent.parameters(), lr=LEARNING_RATE, eps=ADAM_EPS)
 
-  rollout = Rollout(observations=torch.zeros(
-      (ROLLOUT_LEN, num_agents, n_observations)).to(device),
+  rollout = Rollout(batch_size=batch_size,
+                    observations=torch.zeros(
+                        (ROLLOUT_LEN, num_agents, n_observations)).to(device),
                     actions=torch.zeros(
                         (ROLLOUT_LEN, num_agents, n_actions)).to(device),
                     logprobs=torch.zeros(ROLLOUT_LEN, num_agents).to(device),
                     rewards=torch.zeros(ROLLOUT_LEN, num_agents).to(device),
                     dones=torch.zeros(ROLLOUT_LEN, num_agents).to(device),
-                    values=torch.zeros(ROLLOUT_LEN, num_agents).to(device))
+                    values=torch.zeros(ROLLOUT_LEN, num_agents).to(device),
+                    advantages=torch.zeros(ROLLOUT_LEN, num_agents).to(device))
 
   next_observations = torch.Tensor(env_info.vector_observations).to(device)
   next_dones = torch.zeros(num_agents).to(device)
   num_updates = TOTAL_TIMESTEPS // batch_size
-  minibatch_size = batch_size // N_MINIBATCHES
   current_returns = np.zeros(num_agents)
   scores = []
   time_checkpoint = time.time()
@@ -77,8 +107,7 @@ def run_ppo(env):
       observations = next_observations
 
       with torch.no_grad():
-        actions, logprobs = agent.get_actions_and_logprobs(
-            observations)
+        actions, logprobs = agent.get_actions_and_logprobs(observations)
         values = agent.predict_values(observations)
       env_info = env.step(actions.cpu().numpy())[brain_name]
       dones = env_info.local_done
@@ -98,7 +127,6 @@ def run_ppo(env):
       next_observations = torch.Tensor(env_info.vector_observations).to(device)
       next_dones = torch.Tensor([dones]).to(device)
 
-    advantages = torch.zeros(ROLLOUT_LEN, num_agents).to(device)
     z = 0
     for t in reversed(range(ROLLOUT_LEN)):
       if t == ROLLOUT_LEN - 1:
@@ -111,40 +139,22 @@ def run_ppo(env):
       td_errors = rollout.rewards[
           t] + next_nonterminal * GAMMA * next_values - rollout.values[t]
       z = td_errors + next_nonterminal * GAMMA * GAE_LAMBDA * z
-      advantages[t] = z
+      rollout.advantages[t] = z
 
-    # Reshape rollout variables for training
-    batch = Batch(observations=rollout.observations.reshape(
-        (-1, n_observations)),
-                  actions=rollout.actions.reshape((-1, n_actions)),
-                  advantages=advantages.reshape(-1),
-                  returns=(advantages + rollout.values).reshape(-1),
-                  logprobs=rollout.logprobs.reshape(-1))
-
-    batch_indices = np.arange(batch_size)
     for epoch in range(UPDATE_EPOCHS):
-      np.random.shuffle(batch_indices)
-      for start in range(0, batch_size, minibatch_size):
-        mbatch_indices = batch_indices[start:start + minibatch_size]
-        minibatch = Batch(observations=batch.observations[mbatch_indices],
-                          actions=batch.actions[mbatch_indices],
-                          advantages=batch.advantages[mbatch_indices],
-                          returns=batch.advantages[mbatch_indices],
-                          logprobs=batch.advantages[mbatch_indices])
-
-        _, logprobs = agent.get_actions_and_logprobs(minibatch.observations,
-                                                    minibatch.actions)
-        values = agent.predict_values(minibatch.observations)
-        logratios = logprobs - minibatch.logprobs
-        ratios = logratios.exp()
+      for observations, actions, advantages, logprobs, values in rollout.gen_minibatches(
+      ):
+        _, cur_logprobs = agent.get_actions_and_logprobs(observations, actions)
+        cur_values = agent.predict_values(observations)
+        ratios = (cur_logprobs - logprobs).exp()
 
         # Surrogate objective
-        pg_loss1 = -minibatch.advantages * ratios
-        pg_loss2 = -minibatch.advantages * torch.clamp(ratios, 1 - CLIP_COEF,
-                                                       1 + CLIP_COEF)
-        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-        value_loss = ((values - minibatch.returns)**2).mean()
-        loss = pg_loss + V_COEF * value_loss
+        surrogate_loss1 = -advantages * ratios
+        surrogate_loss2 = -advantages * torch.clamp(ratios, 1 - CLIP_COEF,
+                                                    1 + CLIP_COEF)
+        surrogate_loss = torch.max(surrogate_loss1, surrogate_loss2).mean()
+        value_loss = V_COEF * (((advantages + values) - cur_values)**2).mean()
+        loss = surrogate_loss + value_loss
 
         optimizer.zero_grad()
         loss.backward()
